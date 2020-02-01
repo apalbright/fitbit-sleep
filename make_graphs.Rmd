@@ -1,0 +1,442 @@
+---
+title: 'Exploring Fitbit Sleep Data'
+author: 'Alex Albright'
+output:
+  html_notebook: default
+date: 'January 31, 2020'
+---
+
+# Intro
+
+I want to visualize two things using fitbit sleep data:
+
+1. how much I sleep
+2. when I sleep
+
+First, I want to open my Fitbit data. I download the `zip` file from the Fitbit website once my entire archive export was complete. I then rename that file as `fitbitdata`. Within that folder there is a `user-site-export` subfolder with all the raw data I could want to use. For sleep, I focus on the files called `sleep-yyy-mm-dd.json`. There is about one per month. To pull in `json` files, I use `jsonlite` and then just bind them all together.
+
+```{r warning=FALSE}
+library(dplyr);library(jsonlite); library(stringr);
+library(ggplot2);library(lubridate); library(tidyr)
+
+sleep<-bind_rows(fromJSON("fitbitdata/user-site-export/sleep-2018-11-08.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2018-12-08.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2019-01-07.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2019-02-06.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2019-03-08.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2019-04-07.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2019-05-07.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2019-06-06.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2019-07-06.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2019-08-05.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2019-09-04.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2019-10-04.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2019-11-03.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2019-12-03.json", flatten=TRUE),
+                 fromJSON("fitbitdata/user-site-export/sleep-2020-01-02.json", flatten=TRUE))
+```
+
+I realize there are some observations that show up in multiple files -- that is, the name of the file is often in two `jsons`. Jan 2, 2020 sleep is recorded twice in the new file, so I remove duplicate instances via `logId`.
+
+```{r}
+sleep<-sleep%>%
+  select(dateOfSleep, startTime, endTime, minutesAsleep, minutesAwake)
+
+sleep<-sleep%>%
+  unique()
+```
+
+After removing duplicate sleep observations, there are 456 sleep observations.
+
+```{r}
+length(unique(sleep$dateOfSleep))
+```
+
+There are 425 days but 456 sleep instances... So, there are 31 naps recorded. :)
+
+# (1) How much?
+
+## Plot minutes asleep
+
+```{r}
+sleep_day<-sleep%>%
+  group_by(dateOfSleep)%>%
+  summarise(sleep_tot=sum(minutesAsleep)/60)
+
+median(sleep_day$sleep_tot)
+mean(sleep_day$sleep_tot)
+```
+
+I sleep an average of 7.41 hours per day.
+
+I can plot how many minutes of sleep I get per day.
+
+```{r}
+ggplot(sleep_day, aes(x=sleep_tot))+
+  theme_minimal()+ theme(text=element_text(family="Palatino", size=13))+
+  theme(plot.title = element_text(size = 20))+
+  geom_histogram(binwidth = 0.5, fill="#20A387FF", alpha=0.7)+
+  labs(x="", y="", caption="Purple line shows mean of 7.41.")+ #theme(axis.text.y=element_text(size=0))+
+  geom_vline(xintercept = 7.41, color="#440154FF", linetype=5)+
+  scale_x_continuous(breaks=seq(0,13,1), limits = c(0,13))+
+  ggtitle("How Many Hours Do I Sleep Per Day?", 
+          subtitle = "Data from 425 days of wearing a FitBit")
+
+#save the image
+ggsave("graphs/asleep_time.png", width=9, height=6, dpi=400)
+```
+
+# (2) When I sleep
+
+Now, I want to look at the distribution of times when I fall asleep/wake up.
+
+To do that, I need to extract the times from the date/times recorded by Fitbit. I also make rounded versions for graphing. (Want to make histograms with times to the nearest 30 minutes.)
+
+```{r}
+sleep$bed<-format(ymd_hms(str_replace(sleep$startTime, "T", " ")), "%H:%M:%S")
+sleep$wake<-format(ymd_hms(str_replace(sleep$endTime, "T", " ")), "%H:%M:%S")
+
+#create a rounded version for graphing
+sleep$bed_30<-format(round_date(ymd_hms(str_replace(sleep$startTime, "T", " ")), 
+                                "30 minutes"), "%H:%M")
+sleep$wake_30<-format(round_date(ymd_hms(str_replace(sleep$endTime, "T", " ")), 
+                                "30 minutes"), "%H:%M")
+```
+
+Prep data for graphing.
+
+```{r}
+#prep bedtime
+
+sleep_bed<-sleep%>%
+  mutate(time=bed_30)%>%
+  group_by(time)%>%
+  summarise(count=n())
+
+#make df for all times
+time<-c("00:00", "00:30", "01:00", "01:30", "02:00",  "02:30", 
+                            "03:00",  "03:30", 
+                            "04:00",  "04:30", 
+                            "05:00",  "05:30", 
+                            "06:00",  "06:30", 
+                            "07:00",  "07:30", 
+                            "08:00",  "08:30", 
+                            "09:00",  "09:30", 
+                            "10:00",  "10:30", 
+                            "11:00",  "11:30", 
+                            "12:00",  "12:30", 
+                            "13:00",  "13:30", 
+                            "14:00",  "14:30", 
+                            "15:00",  "15:30", 
+                            "16:00",  "16:30", 
+                            "17:00",  "17:30", 
+                            "18:00",  "18:30", 
+                            "19:00",  "19:30", 
+                            "20:00",  "20:30", 
+                            "21:00",  "21:30", 
+                            "22:00",  "22:30", 
+                            "23:00",  "23:30")
+time<-data.frame(time)
+
+bedtime<-left_join(time, sleep_bed, by="time")
+
+bedtime<-bedtime %>% 
+  mutate(count = replace_na(count, 0))
+
+#prep wake time
+
+sleep_wake<-sleep%>%
+  mutate(time=wake_30)%>%
+  group_by(time)%>%
+  summarise(count=n())
+
+waketime<-left_join(time, sleep_wake, by="time")
+
+waketime<-waketime %>% 
+  mutate(count = replace_na(count, 0))
+```
+
+Prep the data
+
+```{r}
+bed_wake_time<-bedtime%>%
+  mutate(bedcount=count)%>%
+  select(bedcount, time)%>%
+  inner_join(waketime, by="time")%>%
+  mutate(wakecount=count)%>%
+  select(-count)%>%
+  pivot_longer(cols=c(bedcount, wakecount), names_to="type", values_to="count")
+```
+
+Note that I am now using `pivot_longer()` rather than `gather()` -- thanks to Hadley's RStudio::conf `tidyverse` talk. 
+
+## Plot bed/wake time distributions
+
+Plot this out with polar coordinates (since time calls for that sort of thing!)
+
+```{r}
+ggplot(bed_wake_time, aes(x=time, y=count, color=type,fill=type))+
+  geom_bar(stat="identity", alpha=.8,
+           data=subset(bed_wake_time, bed_wake_time$type=="wakecount"))+
+  geom_bar(stat="identity", alpha=.8, 
+           data=subset(bed_wake_time, bed_wake_time$type=="bedcount"))+
+  scale_fill_manual(values = c("#440154FF", "#20A387FF"), name="",
+                    labels=c("Fall Asleep", "Wake Up"))+
+  scale_color_manual(values = c("#440154FF", "#20A387FF"), name="", 
+                     labels=c("Fall Asleep", "Wake Up"))+
+  labs(x="", y="")+
+  theme_minimal()+ theme(text=element_text(family="Palatino", size=13))+
+  theme(plot.title = element_text(size = 20))+
+  theme(axis.text.y=element_text(size=0))+ theme(axis.text.x=element_text(size=13))+
+  scale_x_discrete(labels=c("12am", "", "1am", "", "2am", "", "3am", "", 
+                            "4am", "", "5am", "", "6am", "", "7am", "", 
+                            "8am", "", "9am", "", "10am", "", "11am", "",
+                            "12pm", "", "1pm", "", "2pm", "", "3pm", "",
+                            "4pm", "", "5pm", "", "6pm", "", "7pm", "",
+                            "8pm", "", "9pm", "", "10pm", "", "11pm", ""))+
+  coord_polar()+theme(legend.position = "top")+
+  ggtitle("When Do I Fall Asleep/Wake Up?", 
+          subtitle = "Data from 425 days of wearing a FitBit")
+
+#save the image
+ggsave("graphs/times_polar.png", width=9, height=7, dpi=400)
+```
+
+I'd love to set the title to use colors instead of having a legend (a la [this](https://www.williamrchase.com/slides/assets/player/KeynoteDHTMLPlayer.html#18) rstudio::conf talk's suggestion) via using `ggtext` but I'm getting [this error right now](https://github.com/wilkelab/ggtext/issues/13) despite installing the dev version of `ggplot2`... *Hm, hopefully this will be fixed in the future and then I can learn how to implement.*
+
+## Other ways of showing when sleep is happening
+
+I'd like to (1) make a plot showing all hours in the 30-min increments in the day over all 425 days and color based on being awake/asleep, and (2) make an animation showing 425 iterations of myself decide to drift in and out of consciousness. (Bubbles for each day and then with each 30 min, they move into sleep zone or into awake zone.)
+
+For both of these, I need a df for all 30 min increments in the day (48 of them), and I need an indicator for being awake/asleep over all times and all selves.
+
+```{r}
+sleep1a<-sleep%>%
+  select(dateOfSleep, bed, wake)%>%
+  filter(bed<wake)%>%
+  mutate(asleep0=ifelse(bed<"00:00:00" & wake>"00:00:00", 1, 0),
+         asleep0.5=ifelse(bed<"00:30:00" & wake>"00:30:00", 1, 0),
+         asleep1=ifelse(bed<"01:00:00" & wake>"01:00:00", 1, 0),
+         asleep1.5=ifelse(bed<"01:30:00" & wake>"01:30:00", 1, 0),
+         asleep2=ifelse(bed<"02:00:00" & wake>"02:00:00", 1, 0),
+         asleep2.5=ifelse(bed<"02:30:00" & wake>"02:30:00", 1, 0),
+         asleep3=ifelse(bed<"03:00:00" & wake>"03:00:00", 1, 0),
+         asleep3.5=ifelse(bed<"03:30:00" & wake>"03:30:00", 1, 0),
+         asleep4=ifelse(bed<"04:00:00" & wake>"04:00:00", 1, 0),
+         asleep4.5=ifelse(bed<"04:30:00" & wake>"04:30:00", 1, 0),
+         asleep5=ifelse(bed<"05:00:00" & wake>"05:00:00", 1, 0),
+         asleep5.5=ifelse(bed<"05:30:00" & wake>"05:30:00", 1, 0),
+         asleep6=ifelse(bed<"06:00:00" & wake>"06:00:00", 1, 0),
+         asleep6.5=ifelse(bed<"06:30:00" & wake>"06:30:00", 1, 0),
+         asleep7=ifelse(bed<"07:00:00" & wake>"07:00:00", 1, 0),
+         asleep7.5=ifelse(bed<"07:30:00" & wake>"07:30:00", 1, 0),
+         asleep8=ifelse(bed<"08:00:00" & wake>"08:00:00", 1, 0),
+         asleep8.5=ifelse(bed<"08:30:00" & wake>"08:30:00", 1, 0),
+         asleep9=ifelse(bed<"09:00:00" & wake>"09:00:00", 1, 0),
+         asleep9.5=ifelse(bed<"09:30:00" & wake>"09:30:00", 1, 0),
+         asleep10=ifelse(bed<"10:00:00" & wake>"10:00:00", 1, 0),
+         asleep10.5=ifelse(bed<"10:30:00" & wake>"10:30:00", 1, 0),
+         asleep11=ifelse(bed<"11:00:00" & wake>"11:00:00", 1, 0),
+         asleep11.5=ifelse(bed<"11:30:00" & wake>"11:30:00", 1, 0),
+         asleep12=ifelse(bed<"12:00:00" & wake>"12:00:00", 1, 0),
+         asleep12.5=ifelse(bed<"12:30:00" & wake>"12:30:00", 1, 0),
+         asleep13=ifelse(bed<"13:00:00" & wake>"13:00:00", 1, 0),
+         asleep13.5=ifelse(bed<"13:30:00" & wake>"13:30:00", 1, 0),
+         asleep14=ifelse(bed<"14:00:00" & wake>"14:00:00", 1, 0),
+         asleep14.5=ifelse(bed<"14:30:00" & wake>"14:30:00", 1, 0),
+         asleep15=ifelse(bed<"15:00:00" & wake>"15:00:00", 1, 0),
+         asleep15.5=ifelse(bed<"15:30:00" & wake>"15:30:00", 1, 0),
+         asleep16=ifelse(bed<"16:00:00" & wake>"16:00:00", 1, 0),
+         asleep16.5=ifelse(bed<"16:30:00" & wake>"16:30:00", 1, 0),
+         asleep17=ifelse(bed<"17:00:00" & wake>"17:00:00", 1, 0),
+         asleep17.5=ifelse(bed<"17:30:00" & wake>"17:30:00", 1, 0),
+         asleep18=ifelse(bed<"18:00:00" & wake>"18:00:00", 1, 0),
+         asleep18.5=ifelse(bed<"18:30:00" & wake>"18:30:00", 1, 0),
+         asleep19=ifelse(bed<"19:00:00" & wake>"19:00:00", 1, 0),
+         asleep19.5=ifelse(bed<"19:30:00" & wake>"19:30:00", 1, 0),
+         asleep20=ifelse(bed<"20:00:00" & wake>"20:00:00", 1, 0),
+         asleep20.5=ifelse(bed<"20:30:00" & wake>"20:30:00", 1, 0),
+         asleep21=ifelse(bed<"21:00:00" & wake>"21:00:00", 1, 0),
+         asleep21.5=ifelse(bed<"21:30:00" & wake>"21:30:00", 1, 0),
+         asleep22=ifelse(bed<"22:00:00" & wake>"22:00:00", 1, 0),
+         asleep22.5=ifelse(bed<"22:30:00" & wake>"22:30:00", 1, 0),
+         asleep23=ifelse(bed<"23:00:00" & wake>"23:00:00", 1, 0),
+         asleep23.5=ifelse(bed<"23:30:00" & wake>"23:30:00", 1, 0))
+
+sleep1b<-sleep%>%
+  select(dateOfSleep, bed, wake)%>%
+  filter(bed>wake)%>% 
+  mutate(asleep0=ifelse(!(wake<"00:00:00" & "00:00:00"<bed), 1, 0),
+         asleep1=ifelse(!(wake<"01:00:00" & "01:00:00"<bed), 1, 0),
+         asleep2=ifelse(!(wake<"02:00:00" & "02:00:00"<bed), 1, 0),
+         asleep3=ifelse(!(wake<"03:00:00" & "03:00:00"<bed), 1, 0),
+         asleep4=ifelse(!(wake<"04:00:00" & "04:00:00"<bed), 1, 0),
+         asleep5=ifelse(!(wake<"05:00:00" & "05:00:00"<bed), 1, 0),
+         asleep6=ifelse(!(wake<"06:00:00" & "06:00:00"<bed), 1, 0),
+         asleep7=ifelse(!(wake<"07:00:00" & "07:00:00"<bed), 1, 0),
+         asleep8=ifelse(!(wake<"08:00:00" & "08:00:00"<bed), 1, 0),
+         asleep9=ifelse(!(wake<"09:00:00" & "09:00:00"<bed), 1, 0),
+         asleep10=ifelse(!(wake<"10:00:00" & "10:00:00"<bed), 1, 0),
+         asleep11=ifelse(!(wake<"11:00:00" & "11:00:00"<bed), 1, 0),
+         asleep12=ifelse(!(wake<"12:00:00" & "12:00:00"<bed), 1, 0),
+         asleep13=ifelse(!(wake<"13:00:00" & "13:00:00"<bed), 1, 0),
+         asleep14=ifelse(!(wake<"14:00:00" & "14:00:00"<bed), 1, 0),
+         asleep15=ifelse(!(wake<"15:00:00" & "15:00:00"<bed), 1, 0),
+         asleep16=ifelse(!(wake<"16:00:00" & "16:00:00"<bed), 1, 0),
+         asleep17=ifelse(!(wake<"17:00:00" & "17:00:00"<bed), 1, 0),
+         asleep18=ifelse(!(wake<"18:00:00" & "18:00:00"<bed), 1, 0),
+         asleep19=ifelse(!(wake<"19:00:00" & "19:00:00"<bed), 1, 0),
+         asleep20=ifelse(!(wake<"20:00:00" & "20:00:00"<bed), 1, 0),
+         asleep21=ifelse(!(wake<"21:00:00" & "21:00:00"<bed), 1, 0),
+         asleep22=ifelse(!(wake<"22:00:00" & "22:00:00"<bed), 1, 0),
+         asleep23=ifelse(!(wake<"23:00:00" & "23:00:00"<bed), 1, 0),
+         asleep0.5=ifelse(!(wake<"00:30:00" & "00:30:00"<bed), 1, 0),
+         asleep1.5=ifelse(!(wake<"01:30:00" & "01:30:00"<bed), 1, 0),
+         asleep2.5=ifelse(!(wake<"02:30:00" & "02:30:00"<bed), 1, 0),
+         asleep3.5=ifelse(!(wake<"03:30:00" & "03:30:00"<bed), 1, 0),
+         asleep4.5=ifelse(!(wake<"04:30:00" & "04:30:00"<bed), 1, 0),
+         asleep5.5=ifelse(!(wake<"05:30:00" & "05:30:00"<bed), 1, 0),
+         asleep6.5=ifelse(!(wake<"06:30:00" & "06:30:00"<bed), 1, 0),
+         asleep7.5=ifelse(!(wake<"07:30:00" & "07:30:00"<bed), 1, 0),
+         asleep8.5=ifelse(!(wake<"08:30:00" & "08:30:00"<bed), 1, 0),
+         asleep9.5=ifelse(!(wake<"09:30:00" & "09:30:00"<bed), 1, 0),
+         asleep10.5=ifelse(!(wake<"10:30:00" & "10:30:00"<bed), 1, 0),
+         asleep11.5=ifelse(!(wake<"11:30:00" & "11:30:00"<bed), 1, 0),
+         asleep12.5=ifelse(!(wake<"12:30:00" & "12:30:00"<bed), 1, 0),
+         asleep13.5=ifelse(!(wake<"13:30:00" & "13:30:00"<bed), 1, 0),
+         asleep14.5=ifelse(!(wake<"14:30:00" & "14:30:00"<bed), 1, 0),
+         asleep15.5=ifelse(!(wake<"15:30:00" & "15:30:00"<bed), 1, 0),
+         asleep16.5=ifelse(!(wake<"16:30:00" & "16:30:00"<bed), 1, 0),
+         asleep17.5=ifelse(!(wake<"17:30:00" & "17:30:00"<bed), 1, 0),
+         asleep18.5=ifelse(!(wake<"18:30:00" & "18:30:00"<bed), 1, 0),
+         asleep19.5=ifelse(!(wake<"19:30:00" & "19:30:00"<bed), 1, 0),
+         asleep20.5=ifelse(!(wake<"20:30:00" & "20:30:00"<bed), 1, 0),
+         asleep21.5=ifelse(!(wake<"21:30:00" & "21:30:00"<bed), 1, 0),
+         asleep22.5=ifelse(!(wake<"22:30:00" & "22:30:00"<bed), 1, 0),
+         asleep23.5=ifelse(!(wake<"23:30:00" & "23:30:00"<bed), 1, 0))
+     
+sleep1<-bind_rows(sleep1a,sleep1b) 
+```
+
+Take max across days -- since I might sleep and then nap within the same day.
+
+```{r}
+sleep2<-sleep1%>%
+  group_by(dateOfSleep)%>%
+  summarise(asleep0=max(asleep0),
+            asleep1=max(asleep1),
+            asleep2=max(asleep2),
+            asleep3=max(asleep3),
+            asleep4=max(asleep4),
+            asleep5=max(asleep5),
+            asleep6=max(asleep6),
+            asleep7=max(asleep7),
+            asleep8=max(asleep8),
+            asleep9=max(asleep9),
+            asleep10=max(asleep10),
+            asleep11=max(asleep11),
+            asleep12=max(asleep12),
+            asleep13=max(asleep13),
+            asleep14=max(asleep14),
+            asleep15=max(asleep15),
+            asleep16=max(asleep16),
+            asleep17=max(asleep17),
+            asleep18=max(asleep18),
+            asleep19=max(asleep19),
+            asleep20=max(asleep20),
+            asleep21=max(asleep21),
+            asleep22=max(asleep22),
+            asleep23=max(asleep23),
+            asleep0.5=max(asleep0.5),
+            asleep1.5=max(asleep1.5),
+            asleep2.5=max(asleep2.5),
+            asleep3.5=max(asleep3.5),
+            asleep4.5=max(asleep4.5),
+            asleep5.5=max(asleep5.5),
+            asleep6.5=max(asleep6.5),
+            asleep7.5=max(asleep7.5),
+            asleep8.5=max(asleep8.5),
+            asleep9.5=max(asleep9.5),
+            asleep10.5=max(asleep10.5),
+            asleep11.5=max(asleep11.5),
+            asleep12.5=max(asleep12.5),
+            asleep13.5=max(asleep13.5),
+            asleep14.5=max(asleep14.5),
+            asleep15.5=max(asleep15.5),
+            asleep16.5=max(asleep16.5),
+            asleep17.5=max(asleep17.5),
+            asleep18.5=max(asleep18.5),
+            asleep19.5=max(asleep19.5),
+            asleep20.5=max(asleep20.5),
+            asleep21.5=max(asleep21.5),
+            asleep22.5=max(asleep22.5),
+            asleep23.5=max(asleep23.5))%>%
+  mutate(day=row_number())%>%select(-dateOfSleep)
+```
+
+Now, reshape long to wide so it'll work for plotting.
+
+```{r}
+sleep2<-sleep2%>%
+  pivot_longer(cols=asleep0:asleep23.5, names_to = "hour", values_to = "asleep")
+
+sleep2$hour<-as.numeric(gsub("asleep","", sleep2$hour))
+sleep2<-sleep2%>%
+  arrange(hour)
+```
+
+### Plot it with `geom_raster()`
+
+```{r}
+ggplot(sleep2, aes(x=hour, y=day)) +
+  theme_minimal()+ 
+  theme(panel.grid.major=element_blank()) +
+  theme(panel.grid.minor=element_blank()) +
+  theme(text=element_text(family="Palatino", size=13))+
+  theme(plot.title = element_text(size = 20))+
+  geom_raster(aes(fill=factor(asleep)))+
+  theme(legend.position = "top")+
+  scale_fill_manual(values=c("#20A387FF", "#440154FF"),
+                      name="", labels=c("Awake", "Asleep"))+
+  scale_x_continuous(breaks=seq(0,24,4))+
+  # Here comes the gganimate specific bits
+  labs(x = '', y = '') + theme(axis.text.y=element_text(size=0))+
+  ggtitle('425 iterations of me fall asleep and wake back up', 
+          subtitle="State of consciousness over hours in the day")
+
+#save the image
+ggsave("graphs/asleep_raster.png", width=9, height=7, dpi=400)
+```
+
+Note: this is my first time using `geom_raster()`! 
+
+### Animate it with `gganimate`
+
+Inspo: Nathan Yau's moving bubble charts [here.](https://flowingdata.com/2015/12/15/a-day-in-the-life-of-americans/)
+
+```{r}
+library(gganimate)
+g<-ggplot(sleep2, aes(x=asleep, y=day)) +
+  theme_minimal()+ theme(text=element_text(family="Palatino", size=13))+
+  theme(panel.grid.major=element_blank()) +
+  theme(panel.grid.minor=element_blank()) +
+  theme(plot.title = element_text(size = 20))+
+  geom_point(alpha = 0.7, show.legend = FALSE, size=1, color="#440154FF") +
+  scale_x_continuous(limits=c(-.5,1.5), 
+                     breaks=seq(-.5,1.5,.5), 
+                     labels = c("","Awake", "", "Asleep",""))+
+  theme(axis.text.y=element_text(size=0))+
+  # Here are the gganimate specific things
+  labs(x = '', y = '') +
+  ggtitle('425 iterations of me fall asleep and wake back up', 
+          subtitle = 'Hour of the day: {round(frame_time, 0)}')+
+  transition_time(hour) +
+  ease_aes("cubic-in-out")
+
+animate(g, fps = 30, duration = 25, width = 500, height = 500)
+
+#save animation
+anim_save("graphs/sleep_425_mes.gif")
+```
+
+If anyone has suggestions on improving this animation, I'm all ears.
